@@ -37,7 +37,7 @@ class ScrapingConfig:
 class LinkedInConfig:
     email: str = os.getenv("LINKEDIN_EMAIL", "")
     password: str = os.getenv("LINKEDIN_PASSWORD", "")
-    base_url: str = "https://www.linkedin.com/jobs/search/"
+    base_url: str = "https://www.linkedin.com/jobs/search"
     max_jobs_per_search: int = 100
     
     def __post_init__(self):

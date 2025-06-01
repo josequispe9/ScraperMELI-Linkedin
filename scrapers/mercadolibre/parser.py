@@ -344,3 +344,75 @@ class MercadoLibreParser:
         except Exception as e:
             logger.error(f"Error parseando página de detalle: {e}")
             return {'url': url, 'error': str(e)}
+
+# Agregar estos métodos al final de la clase MercadoLibreParser en parser.py
+
+async def parse_product_detail_page(self, page: Page, url: str) -> Dict[str, Any]:
+    """Parse detallado de página individual de producto - versión mejorada"""
+    try:
+        details = await self.scrape_product_details_from_url(page, url)
+        
+        # Extraer información básica de la página de producto
+        product_detail = {
+            'titulo': await self._safe_extract_text(page, [
+                '.ui-pdp-title',
+                'h1.ui-pdp-title',
+                '[data-testid="product-title"]'
+            ]),
+            'precio': await self._safe_extract_text(page, [
+                '.andes-money-amount__fraction',
+                '.ui-pdp-price__fraction',
+                '[data-testid="price-fraction"]'
+            ]),
+            'url': url,
+            'vendedor': await self._safe_extract_text(page, [
+                '.ui-pdp-seller__header__title',
+                '.ui-seller-info__title',
+                '[data-testid="seller-name"]'
+            ]),
+            'ubicacion': details.get('ubicacion', 'Desconocida'),
+            'reputacion': details.get('reputacion_vendedor', 'Desconocida'),
+            'descripcion': await self._safe_extract_text(page, [
+                '.ui-pdp-description__content',
+                '.ui-pdp-description p',
+                '[data-testid="product-description"]'
+            ]),
+            'condicion': await self._safe_extract_text(page, [
+                '.ui-pdp-subtitle',
+                '.ui-pdp-condition',
+                '[data-testid="product-condition"]'
+            ])
+        }
+        
+        # Limpiar datos vacíos o inválidos
+        for key, value in product_detail.items():
+            if not value or value in ['N/A', 'Sin información', '']:
+                if key == 'titulo':
+                    product_detail[key] = 'Producto sin título'
+                elif key == 'precio':
+                    product_detail[key] = 'Precio no disponible'
+                elif key == 'vendedor':
+                    product_detail[key] = 'Vendedor desconocido'
+                else:
+                    product_detail[key] = 'No disponible'
+        
+        return product_detail
+        
+    except Exception as e:
+        logger.error(f"Error parseando página de detalle: {e}")
+        return {'url': url, 'error': str(e), 'titulo': 'Error al extraer'}
+
+async def _safe_extract_text(self, page: Page, selectors: List[str]) -> str:
+    """Extraer texto de forma segura usando múltiples selectores"""
+    for selector in selectors:
+        try:
+            element = await page.query_selector(selector)
+            if element:
+                text = await element.inner_text()
+                if text and text.strip():
+                    return text.strip()
+        except Exception as e:
+            logger.debug(f"Error con selector {selector}: {e}")
+            continue
+    
+    return "N/A"

@@ -1,7 +1,6 @@
 """
-Scraper para MercadoLibre Argentina
-Extrae información de productos con manejo de paginación y detección anti-bot
-Versión actualizada que utiliza los métodos robustos del parser mejorado
+Scraper para MercadoLibre Argentina - Versión Corregida
+Basado en el código funcional de meli.py con estructura robusta
 """
 
 import asyncio
@@ -26,14 +25,14 @@ class MercadoLibreScraper:
     def __init__(self):
         self.browser_manager = BrowserManager()
         self.parser = MercadoLibreParser()
-        self.base_url = MERCADOLIBRE_CONFIG.base_url
-        self.max_products = MERCADOLIBRE_CONFIG.max_products_per_term
+        self.base_url = "https://listado.mercadolibre.com.ar"
+        self.max_products = getattr(MERCADOLIBRE_CONFIG, 'max_products_per_term', 50)
         self.scraped_products = []
         
     async def scrape_products(self, search_terms: List[str] = None) -> List[ProductData]:
         """Scraper principal para extraer productos de MercadoLibre"""
         if not search_terms:
-            search_terms = MERCADOLIBRE_CONFIG.search_terms
+            search_terms = getattr(MERCADOLIBRE_CONFIG, 'search_terms', ['zapatillas'])
             
         perf_logger.start("MercadoLibre scraping session")
         
@@ -55,7 +54,7 @@ class MercadoLibreScraper:
                     logger.info(f"Completado término '{term}': {len(products)} productos extraídos")
                     
                     # Delay entre términos de búsqueda para evitar rate limiting
-                    if i < len(search_terms) - 1:  # No delay después del último término
+                    if i < len(search_terms) - 1:
                         await random_delay(5, 10)
             
             # Eliminar duplicados basados en URL
@@ -107,94 +106,38 @@ class MercadoLibreScraper:
             Object.defineProperty(navigator, 'languages', {
                 get: () => ['es-AR', 'es', 'en'],
             });
-            
-            // Simular canvas fingerprinting
-            const getContext = HTMLCanvasElement.prototype.getContext;
-            HTMLCanvasElement.prototype.getContext = function(type) {
-                if (type === '2d') {
-                    const context = getContext.apply(this, arguments);
-                    const originalFillText = context.fillText;
-                    context.fillText = function() {
-                        return originalFillText.apply(this, arguments);
-                    };
-                    return context;
-                }
-                return getContext.apply(this, arguments);
-            };
         """)
     
     @retry_async(max_retries=3, delay=2, backoff=2)
     async def _scrape_search_term(self, context: BrowserContext, search_term: str) -> List[ProductData]:
-        """Scraper para un término de búsqueda específico con paginación mejorada"""
+        """Scraper para un término de búsqueda específico - simplificado pero robusto"""
         page = await context.new_page()
         products = []
         
         try:
-            # Construir URL de búsqueda con parámetros adicionales
-            search_url = self._build_search_url(search_term)
+            # Construir URL de búsqueda simple (como en meli.py)
+            search_url = f"{self.base_url}/{search_term.replace(' ', '-')}"
             logger.info(f"Navegando a: {search_url}")
             
-            await page.goto(search_url, wait_until='networkidle', timeout=30000)
+            await page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
             await self._handle_bot_detection(page)
             
-            # Verificar que la página cargó correctamente
-            if not await self._verify_search_page_loaded(page):
-                logger.error("La página de búsqueda no cargó correctamente")
+            # Esperar a que carguen los productos
+            await self._wait_for_products_to_load(page)
+            
+            # Extraer productos de la primera página usando método robusto
+            page_products = await self._extract_products_from_page_simple(page, search_term)
+            
+            if page_products:
+                products.extend(page_products)
+                logger.info(f"✅ Extraídos {len(page_products)} productos de la primera página")
+                
+                # Enriquecer con detalles adicionales (ubicación y reputación)
+                enriched_products = await self._enrich_products_with_details(context, page_products)
+                return enriched_products
+            else:
+                logger.warning("No se encontraron productos en la página")
                 return []
-            
-            page_number = 1
-            products_scraped = 0
-            consecutive_empty_pages = 0
-            max_empty_pages = 2
-            
-            while products_scraped < self.max_products and consecutive_empty_pages < max_empty_pages:
-                logger.info(f"Procesando página {page_number} para término '{search_term}'")
-                
-                # Esperar a que carguen los productos usando el parser mejorado
-                await self._wait_for_products_to_load(page)
-                
-                # Extraer productos usando el método robusto del parser
-                page_products = await self._extract_products_from_page_robust(page, search_term)
-                
-                if not page_products:
-                    consecutive_empty_pages += 1
-                    logger.warning(f"Página {page_number} sin productos (intento {consecutive_empty_pages}/{max_empty_pages})")
-                    
-                    if consecutive_empty_pages >= max_empty_pages:
-                        logger.info("Alcanzado límite de páginas vacías consecutivas")
-                        break
-                else:
-                    consecutive_empty_pages = 0  # Reset contador
-                    products.extend(page_products)
-                    products_scraped += len(page_products)
-                    
-                    logger.info(f"✅ Extraídos {len(page_products)} productos de página {page_number}")
-                
-                # Verificar si hemos alcanzado el límite
-                if products_scraped >= self.max_products:
-                    logger.info(f"Alcanzado límite máximo de productos: {self.max_products}")
-                    break
-                    
-                # Buscar siguiente página
-                next_page_url = await self._get_next_page_url(page)
-                if not next_page_url:
-                    logger.info("No hay más páginas disponibles")
-                    break
-                
-                # Navegar a siguiente página con delay
-                await random_delay(3, 6)
-                logger.debug(f"Navegando a página {page_number + 1}: {next_page_url}")
-                
-                try:
-                    await page.goto(next_page_url, wait_until='networkidle', timeout=30000)
-                    await self._handle_bot_detection(page)
-                    page_number += 1
-                except Exception as e:
-                    logger.error(f"Error navegando a siguiente página: {e}")
-                    break
-            
-            logger.info(f"✅ Scraping completado para '{search_term}': {len(products)} productos en {page_number} páginas")
-            return products[:self.max_products]
             
         except Exception as e:
             logger.error(f"❌ Error scrapeando término '{search_term}': {e}", exc_info=True)
@@ -202,301 +145,200 @@ class MercadoLibreScraper:
         finally:
             await page.close()
     
-    def _build_search_url(self, search_term: str) -> str:
-        """Construir URL de búsqueda optimizada"""
-        # Limpiar y formatear término de búsqueda
-        clean_term = search_term.strip().replace(' ', '-')
-        clean_term = re.sub(r'[^\w\-]', '', clean_term)
-        
-        # URL base con parámetros para mejorar resultados
-        base_url = f"{self.base_url}/{clean_term}"
-        
-        # Agregar parámetros útiles
-        params = [
-            "_NoThanks=pagination",  # Evitar infinite scroll
-            "sort=relevance",  # Ordenar por relevancia
-        ]
-        
-        if params:
-            base_url += "?" + "&".join(params)
-        
-        return base_url
-    
-    async def _verify_search_page_loaded(self, page: Page) -> bool:
-        """Verificar que la página de búsqueda cargó correctamente"""
-        try:
-            # Verificar que no sea una página de error
-            page_text = await page.text_content('body') or ""
-            
-            error_indicators = [
-                'página no encontrada',
-                'error 404',
-                'no se encontró',
-                'page not found'
-            ]
-            
-            for indicator in error_indicators:
-                if indicator.lower() in page_text.lower():
-                    logger.error(f"Página de error detectada: {indicator}")
-                    return False
-            
-            # Verificar presencia de elementos de búsqueda
-            search_indicators = [
-                '.ui-search-results',
-                '.ui-search-result',
-                '[data-testid="results"]'
-            ]
-            
-            for selector in search_indicators:
-                if await page.query_selector(selector):
-                    return True
-            
-            logger.warning("No se encontraron indicadores de página de búsqueda válida")
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error verificando página de búsqueda: {e}")
-            return False
-    
     async def _wait_for_products_to_load(self, page: Page):
-        """Esperar a que los productos se carguen usando múltiples estrategias"""
-        # Lista de selectores que indican que los productos han cargado
-        product_indicators = [
-            '.ui-search-results__item',
-            '.ui-search-result',
-            '[data-testid="result-item"]',
-            'a[href*="MLA-"]'
-        ]
-        
-        # Intentar cada selector con timeout progresivo
-        for i, selector in enumerate(product_indicators):
-            try:
-                timeout = 5000 + (i * 2000)  # Timeout progresivo
-                await page.wait_for_selector(selector, timeout=timeout)
-                logger.debug(f"✅ Productos cargados detectados con selector: {selector}")
-                
-                # Esperar un poco más para asegurar carga completa
-                await asyncio.sleep(1)
-                return
-                
-            except Exception as e:
-                logger.debug(f"❌ Selector {selector} no funcionó: {e}")
-                continue
-        
-        # Si llegamos aquí, ningún selector funcionó
-        logger.warning("⚠️ No se pudo confirmar carga de productos - continuando con extracción")
-        await asyncio.sleep(3)  # Espera adicional por si acaso
+        """Esperar a que los productos se carguen - versión simplificada"""
+        try:
+            # Usar el selector principal que sabemos que funciona
+            await page.wait_for_selector(".ui-search-layout__item", timeout=15000)
+            logger.debug("✅ Productos cargados correctamente")
+            await asyncio.sleep(2)  # Pequeña espera adicional para asegurar carga completa
+        except Exception as e:
+            logger.warning(f"⚠️ Timeout esperando productos, continuando: {e}")
+            await asyncio.sleep(3)
     
-    async def _extract_products_from_page_robust(self, page: Page, search_term: str) -> List[ProductData]:
-        """Extraer productos usando el método robusto del parser"""
+    async def _extract_products_from_page_simple(self, page: Page, search_term: str) -> List[ProductData]:
+        """Extraer productos usando el método simple pero efectivo de meli.py"""
         products = []
         
         try:
-            # Usar el método robusto del parser para encontrar elementos
-            product_elements = await self.parser.find_product_elements_robust(page)
+            # Usar el selector que sabemos que funciona
+            product_elements = await page.query_selector_all(".ui-search-layout__item")
+            logger.info(f"Se encontraron {len(product_elements)} productos en la página")
             
-            if not product_elements:
-                logger.warning("❌ No se encontraron elementos de producto con método robusto")
-                return []
+            # Limitar a los primeros productos para evitar problemas
+            limited_elements = product_elements[:min(20, self.max_products)]
             
-            logger.info(f"📦 Encontrados {len(product_elements)} elementos de producto")
-            
-            # Procesar cada elemento
-            successful_extractions = 0
-            for i, element in enumerate(product_elements):
+            for i, producto in enumerate(limited_elements):
                 try:
-                    product_data = await self.parser.parse_product_element(element, search_term)
+                    product_data = ProductData()
+                    product_data.categoria = search_term
                     
-                    if product_data:
+                    # Extraer información básica usando selectores comprobados
+                    # Nombre
+                    nombre_el = await producto.query_selector(".poly-component__title")
+                    nombre = await nombre_el.inner_text() if nombre_el else "Sin nombre"
+                    product_data.producto = nombre.strip()
+                    
+                    # Precio
+                    precio_el = await producto.query_selector(".andes-money-amount__fraction")
+                    precio = await precio_el.inner_text() if precio_el else "Sin precio"
+                    product_data.precio = f"${precio.strip()}"
+                    
+                    # Link
+                    link_el = await producto.query_selector("a.poly-component__title")
+                    link = await link_el.get_attribute("href") if link_el else "Sin link"
+                    product_data.url_producto = link.strip() if link else "N/A"
+                    
+                    # Vendedor
+                    vendedor_el = await producto.query_selector(".poly-component__seller")
+                    vendedor = await vendedor_el.inner_text() if vendedor_el else "Desconocido"
+                    product_data.vendedor = vendedor.strip()
+                    
+                    # Envío gratis
+                    envio = "Sí" if await producto.query_selector(".poly-component__shipping") else "No"
+                    product_data.envio_gratis = envio
+                    
+                    # Valores por defecto
+                    product_data.disponible = "Sí"
+                    product_data.ubicacion = "Desconocida"
+                    product_data.reputacion_vendedor = "Desconocida"
+                    
+                    # Validar que el producto tenga información mínima
+                    if (product_data.producto != "Sin nombre" and 
+                        product_data.precio != "$Sin precio" and
+                        len(product_data.producto.strip()) > 5):
+                        
                         products.append(product_data)
-                        successful_extractions += 1
                         logger.debug(f"✅ Producto {i+1} extraído: {product_data.producto[:50]}...")
                     else:
-                        logger.debug(f"❌ Producto {i+1} no válido - descartado")
-                        
+                        logger.debug(f"❌ Producto {i+1} descartado por datos incompletos")
+                    
                 except Exception as e:
-                    logger.debug(f"❌ Error parseando producto {i+1}: {e}")
+                    logger.debug(f"❌ Error al extraer producto {i+1}: {e}")
                     continue
             
-            logger.info(f"✅ Extracción exitosa: {successful_extractions}/{len(product_elements)} productos")
+            logger.info(f"✅ Extracción completada: {len(products)} productos válidos")
             return products
             
         except Exception as e:
-            logger.error(f"❌ Error en extracción robusta de productos: {e}", exc_info=True)
+            logger.error(f"❌ Error en extracción de productos: {e}", exc_info=True)
             return []
     
+    async def _enrich_products_with_details(self, context: BrowserContext, products: List[ProductData]) -> List[ProductData]:
+        """Enriquecer productos con detalles adicionales (ubicación y reputación)"""
+        if not products:
+            return products
+        
+        logger.info(f"Enriqueciendo {len(products)} productos con detalles adicionales...")
+        enriched_products = []
+        
+        # Procesar solo algunos productos para evitar rate limiting
+        products_to_enrich = products[:min(10, len(products))]
+        
+        for i, product in enumerate(products_to_enrich):
+            try:
+                if product.url_producto and product.url_producto.startswith("http"):
+                    logger.debug(f"Enriqueciendo producto {i+1}/{len(products_to_enrich)}: {product.producto[:30]}...")
+                    
+                    # Crear nueva página para el producto
+                    detail_page = await context.new_page()
+                    
+                    try:
+                        await detail_page.goto(product.url_producto, wait_until='domcontentloaded', timeout=20000)
+                        await asyncio.sleep(2)  # Pequeña espera
+                        
+                        # Extraer ubicación
+                        try:
+                            ubicacion_el = await detail_page.query_selector("div.ui-seller-info__status-info__subtitle")
+                            if ubicacion_el:
+                                ubicacion = await ubicacion_el.inner_text()
+                                if ubicacion and ubicacion.strip():
+                                    product.ubicacion = ubicacion.strip()
+                                    logger.debug(f"✅ Ubicación extraída: {product.ubicacion}")
+                        except Exception as e:
+                            logger.debug(f"Error extrayendo ubicación: {e}")
+                        
+                        # Extraer reputación
+                        try:
+                            reputacion_el = await detail_page.query_selector("div.ui-seller-info__header__title + div span")
+                            if reputacion_el:
+                                # Intentar obtener texto primero
+                                reputacion_text = await reputacion_el.inner_text()
+                                if reputacion_text and reputacion_text.strip():
+                                    product.reputacion_vendedor = reputacion_text.strip()
+                                else:
+                                    # Si no hay texto, intentar con clase CSS
+                                    reputacion_class = await reputacion_el.get_attribute("class")
+                                    if reputacion_class:
+                                        product.reputacion_vendedor = reputacion_class
+                                
+                                logger.debug(f"✅ Reputación extraída: {product.reputacion_vendedor}")
+                        except Exception as e:
+                            logger.debug(f"Error extrayendo reputación: {e}")
+                        
+                    finally:
+                        await detail_page.close()
+                    
+                    # Delay entre productos para evitar rate limiting
+                    if i < len(products_to_enrich) - 1:
+                        await random_delay(1, 3)
+                
+                enriched_products.append(product)
+                
+            except Exception as e:
+                logger.debug(f"Error enriqueciendo producto {i+1}: {e}")
+                # Agregar el producto sin enriquecer
+                enriched_products.append(product)
+                continue
+        
+        # Agregar los productos restantes sin enriquecer
+        if len(products) > len(products_to_enrich):
+            enriched_products.extend(products[len(products_to_enrich):])
+        
+        logger.info(f"✅ Productos enriquecidos: {len(enriched_products)}")
+        return enriched_products
+    
     async def _handle_bot_detection(self, page: Page):
-        """Manejar posible detección de bot con estrategias mejoradas"""
+        """Manejar posible detección de bot - versión simplificada"""
         try:
-            # Verificar múltiples indicadores de detección
-            detection_indicators = {
-                'captcha': [
-                    '[data-testid="captcha"]',
-                    '.captcha-container',
-                    'iframe[src*="captcha"]',
-                    '.g-recaptcha',
-                    '#captcha'
-                ],
-                'rate_limit': [
-                    'demasiadas solicitudes',
-                    'many requests',
-                    'blocked',
-                    'verificación',
-                    'robot',
-                    'automatizado'
-                ],
-                'access_denied': [
-                    'acceso denegado',
-                    'access denied',
-                    'forbidden',
-                    '403'
-                ]
-            }
+            # Verificar CAPTCHA básico
+            captcha_selectors = [
+                '[data-testid="captcha"]',
+                '.captcha-container',
+                '.g-recaptcha'
+            ]
             
-            # Verificar CAPTCHA
-            for selector in detection_indicators['captcha']:
+            for selector in captcha_selectors:
                 if await page.query_selector(selector):
-                    logger.warning("🤖 CAPTCHA detectado - aplicando estrategia de espera")
-                    await self._handle_captcha_detection(page)
+                    logger.warning("🤖 CAPTCHA detectado - aplicando espera")
+                    await random_delay(10, 20)
                     return
             
-            # Verificar rate limiting por contenido de texto
+            # Verificar contenido de la página
             page_text = await page.text_content('body') or ""
             page_text_lower = page_text.lower()
             
-            for category, indicators in detection_indicators.items():
-                if category == 'captcha':
-                    continue  # Ya verificado arriba
-                    
-                for indicator in indicators:
-                    if indicator.lower() in page_text_lower:
-                        logger.warning(f"🚫 Detección de {category}: {indicator}")
-                        await self._handle_detection_delay(category)
-                        return
+            suspicious_phrases = [
+                'demasiadas solicitudes',
+                'many requests',
+                'blocked',
+                'robot',
+                'verificación'
+            ]
             
-            # Verificar si la página parece estar bloqueada
-            if len(page_text.strip()) < 100:
+            for phrase in suspicious_phrases:
+                if phrase in page_text_lower:
+                    logger.warning(f"🚫 Posible detección: {phrase}")
+                    await random_delay(8, 15)
+                    return
+            
+            # Si la página tiene muy poco contenido, puede estar bloqueada
+            if len(page_text.strip()) < 200:
                 logger.warning("⚠️ Página con contenido mínimo - posible bloqueo")
                 await random_delay(5, 10)
                         
         except Exception as e:
             logger.debug(f"Error en detección de bot: {e}")
-    
-    async def _handle_captcha_detection(self, page: Page):
-        """Manejar detección de CAPTCHA"""
-        logger.warning("🤖 CAPTCHA detectado - implementando espera extendida")
-        
-        # Espera extendida con logging
-        wait_time = random.randint(15, 30)
-        logger.info(f"⏳ Esperando {wait_time} segundos para bypass de CAPTCHA...")
-        
-        for i in range(wait_time):
-            if i % 5 == 0:
-                logger.debug(f"⏳ Esperando... {wait_time - i} segundos restantes")
-            await asyncio.sleep(1)
-        
-        # Intentar hacer scroll para simular actividad humana
-        try:
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-            await asyncio.sleep(2)
-            await page.evaluate("window.scrollTo(0, 0)")
-        except:
-            pass
-    
-    async def _handle_detection_delay(self, detection_type: str):
-        """Manejar diferentes tipos de detección con delays apropiados"""
-        delay_configs = {
-            'rate_limit': (10, 20),
-            'access_denied': (15, 25),
-            'default': (5, 10)
-        }
-        
-        min_delay, max_delay = delay_configs.get(detection_type, delay_configs['default'])
-        wait_time = random.randint(min_delay, max_delay)
-        
-        logger.warning(f"🚫 Detección tipo '{detection_type}' - esperando {wait_time} segundos")
-        await asyncio.sleep(wait_time)
-    
-    async def _get_next_page_url(self, page: Page) -> Optional[str]:
-        """Obtener URL de la siguiente página con selectores mejorados"""
-        try:
-            # Selectores mejorados para paginación
-            next_selectors = [
-                '.andes-pagination__button--next:not(.andes-pagination__button--disabled)',
-                '.ui-search-pagination [title="Siguiente"]',
-                'a[aria-label="Siguiente"]',
-                '.ui-search-pagination .ui-search-pagination__button--next',
-                '[data-testid="pagination-next"]',
-                'a[href*="_Desde_"]:contains("Siguiente")',
-                '.ui-search-pagination a[href*="_Desde_"]:last-child'
-            ]
-            
-            for selector in next_selectors:
-                try:
-                    next_button = await page.query_selector(selector)
-                    if next_button:
-                        # Verificar que el botón no esté deshabilitado
-                        disabled = await next_button.get_attribute('disabled')
-                        aria_disabled = await next_button.get_attribute('aria-disabled')
-                        
-                        if disabled or aria_disabled == 'true':
-                            continue
-                        
-                        href = await next_button.get_attribute('href')
-                        if href:
-                            # Construir URL completa si es relativa
-                            if href.startswith('/'):
-                                full_url = f"https://listado.mercadolibre.com.ar{href}"
-                            else:
-                                full_url = href
-                            
-                            logger.debug(f"✅ Siguiente página encontrada: {full_url}")
-                            return full_url
-                            
-                except Exception as e:
-                    logger.debug(f"Error con selector de paginación {selector}: {e}")
-                    continue
-            
-            # Método alternativo: buscar enlaces con patrón de paginación
-            try:
-                all_links = await page.query_selector_all('a[href*="_Desde_"]')
-                for link in all_links:
-                    href = await link.get_attribute('href')
-                    if href and '_Desde_' in href:
-                        # Extraer número de página actual y siguiente
-                        current_url = page.url
-                        if self._is_next_page(current_url, href):
-                            if href.startswith('/'):
-                                return f"https://listado.mercadolibre.com.ar{href}"
-                            return href
-            except Exception as e:
-                logger.debug(f"Error en método alternativo de paginación: {e}")
-            
-            logger.debug("❌ No se encontró enlace a siguiente página")
-            return None
-            
-        except Exception as e:
-            logger.debug(f"Error obteniendo URL de siguiente página: {e}")
-            return None
-    
-    def _is_next_page(self, current_url: str, next_href: str) -> bool:
-        """Verificar si el href corresponde a la siguiente página"""
-        try:
-            # Extraer números de página de las URLs
-            current_match = re.search(r'_Desde_(\d+)', current_url)
-            next_match = re.search(r'_Desde_(\d+)', next_href)
-            
-            if current_match and next_match:
-                current_page = int(current_match.group(1))
-                next_page = int(next_match.group(1))
-                return next_page > current_page
-            elif next_match and not current_match:
-                # Primera página a segunda página
-                return True
-                
-            return False
-        except:
-            return False
     
     async def scrape_product_details(self, product_urls: List[str]) -> List[Dict[str, Any]]:
         """Scraper detallado para URLs específicas de productos"""
@@ -511,18 +353,16 @@ class MercadoLibreScraper:
             context = await self.browser_manager.create_context()
             await self._setup_stealth_headers(context)
             
-            # Usar pool de páginas para paralelización controlada
-            page_pool = PagePool(context, size=min(SCRAPING_CONFIG.concurrent_pages, 3))
-            await page_pool.initialize()
-            
             logger.info(f"Iniciando scraping detallado de {len(product_urls)} productos")
             
+            # Procesar productos secuencialmente para evitar problemas
             for i, url in enumerate(product_urls[:self.max_products]):
                 try:
                     logger.debug(f"Procesando detalle {i+1}/{len(product_urls)}: {url}")
                     
-                    page = await page_pool.get_page()
+                    page = await context.new_page()
                     product_detail = await self._scrape_single_product_detail(page, url)
+                    await page.close()
                     
                     if product_detail:
                         detailed_products.append(product_detail)
@@ -530,9 +370,7 @@ class MercadoLibreScraper:
                     else:
                         logger.debug(f"❌ No se pudo extraer detalle de: {url}")
                     
-                    await page_pool.return_page(page)
-                    
-                    # Delay entre productos para evitar rate limiting
+                    # Delay entre productos
                     if i < len(product_urls) - 1:
                         await random_delay(2, 4)
                     
@@ -540,7 +378,6 @@ class MercadoLibreScraper:
                     logger.error(f"❌ Error scrapeando detalle de {url}: {e}")
                     continue
             
-            await page_pool.close_all()
             logger.info(f"✅ Scraping detallado completado: {len(detailed_products)} productos procesados")
             return detailed_products
             
@@ -552,15 +389,10 @@ class MercadoLibreScraper:
     
     @retry_async(max_retries=2, delay=3, backoff=1.5)
     async def _scrape_single_product_detail(self, page: Page, url: str) -> Optional[Dict[str, Any]]:
-        """Scraper para detalle individual de producto con reintentos"""
+        """Scraper para detalle individual de producto"""
         try:
-            await page.goto(url, wait_until='networkidle', timeout=30000)
+            await page.goto(url, wait_until='domcontentloaded', timeout=20000)
             await self._handle_bot_detection(page)
-            
-            # Verificar que la página del producto cargó correctamente
-            if not await self._verify_product_page_loaded(page):
-                logger.warning(f"Página de producto no cargó correctamente: {url}")
-                return None
             
             # Usar el parser para extraer detalles
             product_detail = await self.parser.parse_product_detail_page(page, url)
@@ -574,29 +406,43 @@ class MercadoLibreScraper:
         except Exception as e:
             logger.error(f"❌ Error scrapeando detalle de producto {url}: {e}")
             return None
+
+
+# ============================================== #
+#    Función de utilidad para pruebas rápidas    #
+# ============================================== #
+
+
+async def test_scraper(search_terms: List[str] = None):
+    """Función de prueba para el scraper"""
+    if not search_terms:
+        search_terms = ["zapatillas"]
     
-    async def _verify_product_page_loaded(self, page: Page) -> bool:
-        """Verificar que la página de producto individual cargó correctamente"""
-        try:
-            # Selectores que indican una página de producto válida
-            product_indicators = [
-                '.ui-pdp-title',
-                '.ui-pdp-price',
-                '[data-testid="price"]',
-                '.ui-pdp-container'
-            ]
-            
-            for selector in product_indicators:
-                if await page.query_selector(selector):
-                    return True
-            
-            # Verificar por contenido de texto
-            page_text = await page.text_content('body') or ""
-            if 'precio' in page_text.lower() and len(page_text.strip()) > 200:
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.debug(f"Error verificando página de producto: {e}")
-            return False
+    scraper = MercadoLibreScraper()
+    
+    try:
+        products = await scraper.scrape_products(search_terms)
+        
+        print(f"\n✅ Scraping completado exitosamente!")
+        print(f"📦 Total de productos extraídos: {len(products)}")
+        
+        if products:
+            print(f"\n📋 Muestra de productos extraídos:")
+            for i, product in enumerate(products[:3]):
+                print(f"\n{i+1}. {product.producto}")
+                print(f"   Precio: {product.precio}")
+                print(f"   Vendedor: {product.vendedor}")
+                print(f"   Ubicación: {product.ubicacion}")
+                print(f"   Envío gratis: {product.envio_gratis}")
+                print(f"   URL: {product.url_producto[:80]}...")
+        
+        return products
+        
+    except Exception as e:
+        print(f"❌ Error en scraping: {e}")
+        raise
+
+
+if __name__ == "__main__":
+    # Ejecutar prueba
+    asyncio.run(test_scraper(["zapatillas"]))
