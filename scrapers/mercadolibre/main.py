@@ -5,7 +5,7 @@ async def main():
     scraper = MercadoLibreScraper()
     results = await scraper.scrape_products(["zapatillas", "notebook"])
     
-    for product in results[:5]:  # Mostramos solo los primeros 5 productos
+    for product in results[:3]:  # Mostramos solo los primeros 3 productos
         print(product)
 
 if __name__ == "__main__":

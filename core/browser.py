@@ -3,11 +3,13 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional, List
 from .config import BROWSER_CONFIG, SCRAPING_CONFIG
-from .logger import get_logger
+from .logger import get_logger, LogConfig
 import json
+import random  
 from pathlib import Path
 
-logger = get_logger()
+config = LogConfig(json_format=False)
+logger = get_logger("scraper", config)
 
 class BrowserManager:
     def __init__(self):
@@ -42,7 +44,7 @@ class BrowserManager:
                 'width': BROWSER_CONFIG.viewport_width, 
                 'height': BROWSER_CONFIG.viewport_height
             },
-            'user_agent': BROWSER_CONFIG.user_agent,
+            'user_agent': BROWSER_CONFIG.get_random_user_agent(),
             'ignore_https_errors': True,
             'java_script_enabled': True,
         }

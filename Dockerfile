@@ -17,36 +17,56 @@ RUN apt-get update && apt-get install -y \
     libpangocairo-1.0-0 \
     libpango-1.0-0 \
     curl \
+    wget \
+    gnupg \
+    ca-certificates \
+    fonts-liberation \
+    libappindicator3-1 \
+    libasound2 \
+    libdrm2 \
+    libgtk-3-0 \
+    libnspr4 \
+    libu2f-udev \
+    libvulkan1 \
+    libxss1 \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Establecer el directorio de trabajo dentro del contenedor
+# Crear usuario no root PRIMERO
+RUN useradd -m -s /bin/bash myuser && \
+    mkdir -p /home/myuser/.cache && \
+    chown -R myuser:myuser /home/myuser
+
+# Establecer el directorio de trabajo
 WORKDIR /app
 
-# Copiar archivo de dependencias primero para cacheo eficiente
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
-
-# Instalar los navegadores de Playwright
-RUN playwright install --with-deps
-
-# Copiar el código del proyecto
-COPY core/ ./core/
-COPY scrapers/ ./scrapers/
-COPY test/ ./test/
-COPY entrypoint.sh .
-
-# Crear usuario no root
-RUN useradd -m myuser
-
-# Permisos de ejecución y entorno
-RUN chmod +x entrypoint.sh
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-
-# Cambiar al usuario no root
+# Cambiar al usuario no root ANTES de instalar dependencias
 USER myuser
 
-# Instalar los navegadores al inicio del contenedor
+# Establecer variables de entorno para Playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/home/myuser/.cache/ms-playwright
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Copiar archivo de dependencias y instalar
+COPY --chown=myuser:myuser requirements.txt .
+RUN pip install --user --upgrade pip && \
+    pip install --user --no-cache-dir -r requirements.txt
+
+# Instalar navegadores de Playwright como usuario no-root
+RUN /home/myuser/.local/bin/playwright install chromium
+
+# Copiar el resto del código
+COPY --chown=myuser:myuser core/ ./core/
+COPY --chown=myuser:myuser scrapers/ ./scrapers/
+COPY --chown=myuser:myuser test/ ./test/
+COPY --chown=myuser:myuser entrypoint.sh .
+
+# Dar permisos de ejecución al entrypoint
+RUN chmod +x entrypoint.sh
+
+# Agregar el directorio local de pip al PATH
+ENV PATH="/home/myuser/.local/bin:${PATH}"
+
+# Definir punto de entrada
 ENTRYPOINT ["./entrypoint.sh"]
-CMD ["sleep", "infinity"]

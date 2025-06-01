@@ -1,11 +1,12 @@
 """
 Parser para extraer y estructurar datos de productos de MercadoLibre
+Versión mejorada basada en selectores funcionales comprobados
 """
 
 import re
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from playwright.async_api import ElementHandle, Page
 
 from core.logger import get_logger
@@ -21,7 +22,7 @@ class ProductData:
     vendedor: str = ""
     ubicacion: str = ""
     reputacion_vendedor: str = ""
-    fecha_extraccion: str = field(default_factory=lambda: datetime.now().isoformat())
+    fecha_extraccion: str = field(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"))
     url_producto: str = ""
     disponible: str = ""
     envio_gratis: str = ""
@@ -31,54 +32,117 @@ class ProductData:
     descuento: str = ""
     cuotas: str = ""
     imagen_url: str = ""
-    condicion: str = ""  # Nuevo, Usado, etc.
+    condicion: str = ""
 
 class MercadoLibreParser:
-    """Parser especializado para MercadoLibre Argentina"""
+    """Parser especializado para MercadoLibre Argentina con selectores funcionales comprobados"""
     
     def __init__(self):
-        self.precio_patterns = [
-            r'[\$\s]*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)',
-            r'([0-9]{1,3}(?:\.[0-9]{3})*)',
+        # Selectores principales basados en el código funcional de meli.py
+        self.product_container_selectors = [
+            ".ui-search-layout__item",
+            ".ui-search-results__item", 
+            ".ui-search-result",
+            'div[data-testid*="result"]'
+        ]
+        
+        # Selectores específicos para cada campo
+        self.title_selectors = [
+            ".poly-component__title",
+            ".ui-search-item__title",
+            ".ui-search-results__item-title",
+            "h2 a"
+        ]
+        
+        self.price_selectors = [
+            ".andes-money-amount__fraction",
+            ".price-tag-fraction",
+            ".ui-search-price__part"
+        ]
+        
+        self.link_selectors = [
+            "a.poly-component__title",
+            ".ui-search-item__title a",
+            "a[href*='MLA-']"
+        ]
+        
+        self.seller_selectors = [
+            ".poly-component__seller",
+            ".ui-search-item__seller-info",
+            ".ui-search-official-store-label"
+        ]
+        
+        self.shipping_selectors = [
+            ".poly-component__shipping",
+            ".ui-search-item__shipping",
+            ".ui-search-shipping-label"
         ]
     
+    async def find_product_elements_robust(self, page: Page) -> List[ElementHandle]:
+        """
+        Estrategia robusta para encontrar elementos de productos
+        Basada en selectores comprobados que funcionan
+        """
+        product_elements = []
+        
+        # Intentar con cada selector de contenedor
+        for selector in self.product_container_selectors:
+            try:
+                logger.info(f"Probando selector: {selector}")
+                
+                # Esperar a que aparezcan los elementos
+                await page.wait_for_selector(selector, timeout=10000)
+                elements = await page.query_selector_all(selector)
+                
+                if elements:
+                    logger.info(f"✅ Selector funcionando: {selector} - {len(elements)} elementos encontrados")
+                    
+                    # Validar que los elementos contengan información útil
+                    valid_elements = []
+                    for element in elements:
+                        try:
+                            # Verificar que tenga contenido significativo
+                            text_content = await element.text_content()
+                            if text_content and len(text_content.strip()) > 50:
+                                # Verificar que contenga indicadores de producto
+                                if any(indicator in text_content.lower() for indicator in ['$', 'precio', 'envío']):
+                                    valid_elements.append(element)
+                        except:
+                            continue
+                    
+                    if valid_elements:
+                        logger.info(f"✅ Elementos válidos encontrados: {len(valid_elements)}")
+                        return valid_elements[:20]  # Limitar a 20 productos máximo
+                        
+            except Exception as e:
+                logger.debug(f"❌ Selector {selector} no funcionó: {e}")
+                continue
+        
+        logger.error("❌ No se pudieron encontrar elementos de productos con ningún selector")
+        return []
+
     async def parse_product_element(self, element: ElementHandle, search_term: str = "") -> Optional[ProductData]:
         """Parse de un elemento producto desde listado de búsqueda"""
         try:
             product = ProductData()
             product.categoria = search_term
             
-            # Extraer título/nombre del producto
+            # Extraer información básica del listado
             product.producto = await self._extract_product_title(element)
-            
-            # Extraer precio
             product.precio = await self._extract_price(element)
-            
-            # Extraer URL del producto
             product.url_producto = await self._extract_product_url(element)
-            
-            # Extraer información del vendedor
             product.vendedor = await self._extract_seller_name(element)
-            product.reputacion_vendedor = await self._extract_seller_reputation(element)
-            
-            # Extraer ubicación
-            product.ubicacion = await self._extract_location(element)
-            
-            # Extraer información de envío
             product.envio_gratis = await self._extract_free_shipping(element)
-            
-            # Extraer disponibilidad
-            product.disponible = await self._extract_availability(element)
-            
-            # Extraer información adicional
-            product.descuento = await self._extract_discount(element)
-            product.cuotas = await self._extract_installments(element)
+            product.disponible = "Sí"  # Si está en el listado, asumimos que está disponible
             product.imagen_url = await self._extract_image_url(element)
-            product.condicion = await self._extract_condition(element)
             
-            # Validar que el producto tenga información mínima
-            if not product.producto or not product.precio:
-                logger.debug("Producto descartado por falta de información básica")
+            # Validaciones básicas
+            if not product.producto or product.producto == "N/A" or len(product.producto.strip()) < 5:
+                logger.debug("Producto descartado: título inválido o muy corto")
+                return None
+            
+            if not product.precio or product.precio == "N/A":
+                logger.debug("Producto descartado: precio no encontrado")
                 return None
                 
             return product
@@ -88,290 +152,195 @@ class MercadoLibreParser:
             return None
     
     async def _extract_product_title(self, element: ElementHandle) -> str:
-        """Extraer título del producto"""
-        selectors = [
-            '.ui-search-item__title',
-            '.ui-search-results__item-title',
-            'h2 a',
-            '.ui-search-item__group__element--title a',
-            '[data-testid="item-title"]'
-        ]
+        """Extraer título del producto usando selectores comprobados"""
+        for selector in self.title_selectors:
+            try:
+                title_element = await element.query_selector(selector)
+                if title_element:
+                    title = await title_element.inner_text()
+                    if title and title.strip() and len(title.strip()) > 5:
+                        return title.strip()
+            except Exception as e:
+                logger.debug(f"Error con selector de título {selector}: {e}")
+                continue
         
-        for selector in selectors:
-            title = await safe_extract_text(element, selector)
-            if title != "N/A":
-                return title.strip()
-        
+        logger.debug("No se pudo extraer título del producto")
         return "N/A"
     
     async def _extract_price(self, element: ElementHandle) -> str:
-        """Extraer precio del producto"""
-        selectors = [
-            '.andes-money-amount__fraction',
-            '.price-tag-fraction',
-            '.ui-search-price__part',
-            '.price-tag .price-tag-amount',
-            '[data-testid="price"] .andes-money-amount__fraction'
-        ]
+        """Extraer precio usando selectores comprobados"""
+        for selector in self.price_selectors:
+            try:
+                price_element = await element.query_selector(selector)
+                if price_element:
+                    price = await price_element.inner_text()
+                    if price and price.strip():
+                        # Limpiar y formatear precio
+                        cleaned_price = price.strip()
+                        return f"${cleaned_price}"
+            except Exception as e:
+                logger.debug(f"Error con selector de precio {selector}: {e}")
+                continue
         
-        for selector in selectors:
-            price_element = await element.query_selector(selector)
-            if price_element:
-                price_text = await safe_extract_text(price_element)
-                if price_text != "N/A":
-                    # Limpiar y formatear precio
-                    return self._clean_price(price_text)
-        
-        # Intentar extraer precio de texto completo
-        full_text = await safe_extract_text(element)
-        price_match = re.search(r'\$\s*([0-9]{1,3}(?:\.[0-9]{3})*)', full_text)
-        if price_match:
-            return f"${price_match.group(1)}"
-        
-        return "N/A"
-    
-    def _clean_price(self, price_text: str) -> str:
-        """Limpiar y formatear texto de precio"""
-        if not price_text or price_text == "N/A":
-            return "N/A"
-        
-        # Remover caracteres no numéricos excepto puntos y comas
-        cleaned = re.sub(r'[^\d\.,]', '', price_text)
-        
-        # Formatear como precio argentino
-        if cleaned:
-            return f"${cleaned}"
-        
+        logger.debug("No se pudo extraer precio del producto")
         return "N/A"
     
     async def _extract_product_url(self, element: ElementHandle) -> str:
-        """Extraer URL del producto"""
-        selectors = [
-            '.ui-search-item__title a',
-            '.ui-search-results__item-title a',
-            'h2 a',
-            'a[href*="/MLA-"]'
-        ]
+        """Extraer URL del producto usando selectores comprobados"""
+        for selector in self.link_selectors:
+            try:
+                link_element = await element.query_selector(selector)
+                if link_element:
+                    href = await link_element.get_attribute("href")
+                    if href:
+                        # Convertir URL relativa a absoluta si es necesario
+                        if href.startswith('/'):
+                            return f"https://articulo.mercadolibre.com.ar{href}"
+                        elif href.startswith('http'):
+                            return href
+            except Exception as e:
+                logger.debug(f"Error con selector de URL {selector}: {e}")
+                continue
         
-        for selector in selectors:
-            url = await safe_extract_attribute(element, 'href', selector)
-            if url != "N/A" and 'mercadolibre' in url:
-                return url
-        
+        logger.debug("No se pudo extraer URL del producto")
         return "N/A"
     
     async def _extract_seller_name(self, element: ElementHandle) -> str:
-        """Extraer nombre del vendedor"""
-        selectors = [
-            '.ui-search-item__seller-info',
-            '.ui-search-official-store-label',
-            '.ui-search-item__brand-discoverability',
-            '[data-testid="seller-info"]'
-        ]
+        """Extraer nombre del vendedor usando selectores comprobados"""
+        for selector in self.seller_selectors:
+            try:
+                seller_element = await element.query_selector(selector)
+                if seller_element:
+                    seller = await seller_element.inner_text()
+                    if seller and seller.strip():
+                        return seller.strip()
+            except Exception as e:
+                logger.debug(f"Error con selector de vendedor {selector}: {e}")
+                continue
         
-        for selector in selectors:
-            seller = await safe_extract_text(element, selector)
-            if seller != "N/A":
-                return seller.strip()
-        
-        return "N/A"
-    
-    async def _extract_seller_reputation(self, element: ElementHandle) -> str:
-        """Extraer reputación del vendedor"""
-        selectors = [
-            '.ui-search-item__seller-reputation',
-            '.ui-search-seller-reputation',
-            '[data-testid="seller-reputation"]'
-        ]
-        
-        for selector in selectors:
-            reputation = await safe_extract_text(element, selector)
-            if reputation != "N/A":
-                return reputation.strip()
-        
-        # Buscar elementos de reputación por clase CSS
-        reputation_element = await element.query_selector('[class*="reputation"]')
-        if reputation_element:
-            rep_text = await safe_extract_text(reputation_element)
-            if rep_text != "N/A":
-                return rep_text
-        
-        return "N/A"
-    
-    async def _extract_location(self, element: ElementHandle) -> str:
-        """Extraer ubicación del producto/vendedor"""
-        selectors = [
-            '.ui-search-item__location',
-            '.ui-search-item__location-label',
-            '[data-testid="item-location"]'
-        ]
-        
-        for selector in selectors:
-            location = await safe_extract_text(element, selector)
-            if location != "N/A":
-                return location.strip()
-        
-        return "N/A"
+        return "Desconocido"
     
     async def _extract_free_shipping(self, element: ElementHandle) -> str:
-        """Extraer información de envío gratis"""
-        shipping_selectors = [
-            '.ui-search-item__shipping',
-            '[data-testid="shipping-info"]',
-            '.ui-search-shipping-label'
-        ]
-        
-        for selector in shipping_selectors:
-            shipping_element = await element.query_selector(selector)
-            if shipping_element:
-                shipping_text = await safe_extract_text(shipping_element)
-                if 'gratis' in shipping_text.lower() or 'free' in shipping_text.lower():
+        """Extraer información de envío gratis usando selectores comprobados"""
+        for selector in self.shipping_selectors:
+            try:
+                shipping_element = await element.query_selector(selector)
+                if shipping_element:
                     return "Sí"
-        
-        # Buscar texto que contenga "envío gratis"
-        full_text = await safe_extract_text(element)
-        if 'envío gratis' in full_text.lower() or 'envio gratis' in full_text.lower():
-            return "Sí"
+            except Exception as e:
+                logger.debug(f"Error con selector de envío {selector}: {e}")
+                continue
         
         return "No"
-    
-    async def _extract_availability(self, element: ElementHandle) -> str:
-        """Extraer disponibilidad del producto"""
-        # Buscar indicadores de stock
-        stock_selectors = [
-            '.ui-search-item__stock-info',
-            '[data-testid="stock-info"]'
-        ]
-        
-        for selector in stock_selectors:
-            stock_info = await safe_extract_text(element, selector)
-            if stock_info != "N/A":
-                if 'sin stock' in stock_info.lower() or 'agotado' in stock_info.lower():
-                    return "No disponible"
-                elif 'disponible' in stock_info.lower():
-                    return "Disponible"
-        
-        # Si no hay información específica de stock, asumir disponible
-        return "Disponible"
-    
-    async def _extract_discount(self, element: ElementHandle) -> str:
-        """Extraer información de descuento"""
-        discount_selectors = [
-            '.ui-search-price-discount',
-            '.ui-search-item__discount',
-            '[data-testid="discount"]'
-        ]
-        
-        for selector in discount_selectors:
-            discount = await safe_extract_text(element, selector)
-            if discount != "N/A" and '%' in discount:
-                return discount.strip()
-        
-        return "N/A"
-    
-    async def _extract_installments(self, element: ElementHandle) -> str:
-        """Extraer información de cuotas"""
-        installment_selectors = [
-            '.ui-search-installments',
-            '.ui-search-item__installments',
-            '[data-testid="installments"]'
-        ]
-        
-        for selector in installment_selectors:
-            installments = await safe_extract_text(element, selector)
-            if installments != "N/A" and ('cuotas' in installments.lower() or 'sin interés' in installments.lower()):
-                return installments.strip()
-        
-        return "N/A"
     
     async def _extract_image_url(self, element: ElementHandle) -> str:
         """Extraer URL de imagen del producto"""
         img_selectors = [
-            '.ui-search-result-image img',
-            '.ui-search-item__image img',
-            'img[data-testid="item-image"]'
+            "img",
+            ".ui-search-result-image img",
+            ".ui-search-item__image img"
         ]
         
         for selector in img_selectors:
-            img_url = await safe_extract_attribute(element, 'src', selector)
-            if img_url != "N/A" and 'http' in img_url:
-                return img_url
+            try:
+                img_element = await element.query_selector(selector)
+                if img_element:
+                    img_url = await img_element.get_attribute('src')
+                    if img_url and img_url.startswith('http'):
+                        return img_url
+            except:
+                continue
         
         return "N/A"
     
-    async def _extract_condition(self, element: ElementHandle) -> str:
-        """Extraer condición del producto (Nuevo, Usado, etc.)"""
-        condition_selectors = [
-            '.ui-search-item__condition',
-            '[data-testid="item-condition"]'
-        ]
+    async def scrape_product_details_from_url(self, page: Page, url: str) -> Dict[str, str]:
+        """
+        Scraper detallado para página individual de producto
+        Basado en el código funcional de meli.py
+        """
+        details = {
+            "ubicacion": "Desconocida",
+            "reputacion_vendedor": "Desconocida"
+        }
         
-        for selector in condition_selectors:
-            condition = await safe_extract_text(element, selector)
-            if condition != "N/A":
-                return condition.strip()
-        
-        # Buscar en el texto completo
-        full_text = await safe_extract_text(element)
-        condition_keywords = ['nuevo', 'usado', 'reacondicionado', 'refurbished']
-        
-        for keyword in condition_keywords:
-            if keyword in full_text.lower():
-                return keyword.capitalize()
-        
-        return "Nuevo"  # Default
+        try:
+            if not url or url == "N/A" or not url.startswith("http"):
+                return details
+            
+            logger.info(f"Navegando a página de producto: {url}")
+            await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            
+            # Extraer ubicación usando selectores comprobados
+            location_selectors = [
+                "div.ui-seller-info__status-info__subtitle",
+                ".ui-seller-location",
+                "[data-testid='seller-location']"
+            ]
+            
+            for selector in location_selectors:
+                try:
+                    location_element = await page.query_selector(selector)
+                    if location_element:
+                        location = await location_element.inner_text()
+                        if location and location.strip():
+                            details["ubicacion"] = location.strip()
+                            logger.debug(f"✅ Ubicación extraída: {details['ubicacion']}")
+                            break
+                except Exception as e:
+                    logger.debug(f"Error extrayendo ubicación con {selector}: {e}")
+                    continue
+            
+            # Extraer reputación del vendedor
+            reputation_selectors = [
+                "div.ui-seller-info__header__title + div span",
+                ".ui-seller-info__status-info__title",
+                "[data-testid='seller-reputation']"
+            ]
+            
+            for selector in reputation_selectors:
+                try:
+                    reputation_element = await page.query_selector(selector)
+                    if reputation_element:
+                        # Intentar obtener texto o clase CSS
+                        reputation_text = await reputation_element.inner_text()
+                        if reputation_text and reputation_text.strip():
+                            details["reputacion_vendedor"] = reputation_text.strip()
+                            logger.debug(f"✅ Reputación extraída: {details['reputacion_vendedor']}")
+                            break
+                        else:
+                            # Si no hay texto, intentar con atributo class
+                            reputation_class = await reputation_element.get_attribute("class")
+                            if reputation_class:
+                                details["reputacion_vendedor"] = reputation_class
+                                logger.debug(f"✅ Reputación (clase) extraída: {details['reputacion_vendedor']}")
+                                break
+                except Exception as e:
+                    logger.debug(f"Error extrayendo reputación con {selector}: {e}")
+                    continue
+            
+            return details
+            
+        except Exception as e:
+            logger.error(f"❌ Error scrapeando detalles de {url}: {e}")
+            return details
     
     async def parse_product_detail_page(self, page: Page, url: str) -> Dict[str, Any]:
-        """Parse detallado de página individual de producto"""
+        """Parse detallado de página individual de producto - método de compatibilidad"""
         try:
-            product_detail = {}
+            details = await self.scrape_product_details_from_url(page, url)
             
-            # Información básica
-            product_detail['titulo'] = await safe_extract_text(page, '.ui-pdp-title')
-            product_detail['precio'] = await safe_extract_text(page, '.andes-money-amount__fraction')
-            product_detail['url'] = url
-            
-            # Información del vendedor
-            product_detail['vendedor'] = await safe_extract_text(page, '.ui-pdp-seller__header__title')
-            product_detail['reputacion'] = await safe_extract_text(page, '.ui-seller-info__status-info__title')
-            
-            # Características técnicas
-            characteristics = await self._extract_technical_specs(page)
-            product_detail['caracteristicas'] = characteristics
-            
-            # Descripción
-            product_detail['descripcion'] = await safe_extract_text(page, '.ui-pdp-description__content')
-            
-            # Información de envío
-            product_detail['envio_info'] = await safe_extract_text(page, '.ui-pdp-shipping')
+            # Agregar información básica si está disponible
+            product_detail = {
+                'titulo': await safe_extract_text(page, '.ui-pdp-title'),
+                'precio': await safe_extract_text(page, '.andes-money-amount__fraction'),
+                'url': url,
+                'vendedor': await safe_extract_text(page, '.ui-pdp-seller__header__title'),
+                'ubicacion': details.get('ubicacion', 'Desconocida'),
+                'reputacion': details.get('reputacion_vendedor', 'Desconocida')
+            }
             
             return product_detail
             
         except Exception as e:
             logger.error(f"Error parseando página de detalle: {e}")
-            return {}
-    
-    async def _extract_technical_specs(self, page: Page) -> Dict[str, str]:
-        """Extraer especificaciones técnicas del producto"""
-        specs = {}
-        
-        try:
-            # Buscar tabla de especificaciones
-            spec_rows = await page.query_selector_all('.andes-table__row')
-            
-            for row in spec_rows:
-                key_element = await row.query_selector('.andes-table__header')
-                value_element = await row.query_selector('.andes-table__column')
-                
-                if key_element and value_element:
-                    key = await safe_extract_text(key_element)
-                    value = await safe_extract_text(value_element)
-                    
-                    if key != "N/A" and value != "N/A":
-                        specs[key] = value
-            
-            return specs
-            
-        except Exception as e:
-            logger.debug(f"Error extrayendo especificaciones técnicas: {e}")
-            return {}
+            return {'url': url, 'error': str(e)}

@@ -6,7 +6,17 @@ services:
     container_name: linkedin_scraper
     volumes:
       - .:/app
+      # Montar el directorio de caché de Playwright para persistencia
+      - playwright_cache:/home/myuser/.cache/ms-playwright
     working_dir: /app
     entrypoint: ["./entrypoint.sh"]
-    command: ["sleep", "infinity"]
     tty: true
+    stdin_open: true  # Esto es importante para VSCode attach
+    environment:
+      - PLAYWRIGHT_BROWSERS_PATH=/home/myuser/.cache/ms-playwright
+    # Modo desarrollo por defecto (sin argumentos)
+    command: []
+
+volumes:
+  playwright_cache:
+    driver: local
