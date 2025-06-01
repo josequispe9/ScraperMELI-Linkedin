@@ -1,0 +1,12 @@
+version: '3.9'
+
+services:
+  scraper:
+    build: .
+    container_name: linkedin_scraper
+    volumes:
+      - .:/app
+    working_dir: /app
+    entrypoint: ["./entrypoint.sh"]
+    command: ["sleep", "infinity"]
+    tty: true
