@@ -24,6 +24,9 @@ class JobData:
     url_empleo: str = "No encontrado"
     modalidad: str = "No encontrado"
     fecha_publicacion: str = "No encontrado"
+    descripcion_breve: str = "No disponible"
+    nivel_experiencia: str = "No disponible"
+    beneficios_ofrecidos: str = "No disponible"
 
 class LinkedInParser:
     """Parser simplificado con selectores comprobados"""
@@ -178,6 +181,25 @@ class LinkedInParser:
                 except:
                     continue
             
+            # DESCRIPCIÓN BREVE (desde el listado)
+            desc_selectors = [
+                '.job-search-card__snippet',
+                '.job-card-container__snippet',
+                'div:has-text("Descripción")',
+                'span:has-text("Descripción")'
+            ]
+            
+            for selector in desc_selectors:
+                try:
+                    desc_element = await element.query_selector(selector)
+                    if desc_element:
+                        desc = await desc_element.inner_text()
+                        if desc and desc.strip():
+                            job_data.descripcion_breve = desc.strip()[:200] + "..."
+                            break
+                except:
+                    continue
+            
             # Validaciones básicas
             if not job_data.titulo_puesto or job_data.titulo_puesto == "No encontrado":
                 return None
@@ -204,7 +226,7 @@ class LinkedInParser:
         details = {
             "descripcion_completa": "No disponible",
             "nivel_experiencia": "No disponible",
-            "aplicantes": "No disponible"
+            "beneficios_ofrecidos": "No disponible"
         }
         
         try:
@@ -243,25 +265,26 @@ class LinkedInParser:
                     for exp_element in exp_elements:
                         exp_text = await exp_element.inner_text()
                         if exp_text and any(keyword in exp_text.lower() 
-                                          for keyword in ['entry', 'senior', 'mid', 'junior']):
+                                          for keyword in ['entry', 'senior', 'mid', 'junior', 'level']):
                             details["nivel_experiencia"] = exp_text.strip()
                             break
                 except:
                     continue
             
-            # Aplicantes
-            applicants_selectors = [
-                '.jobs-unified-top-card__applicant-count',
-                '.job-details-jobs-unified-top-card__applicant-count'
+            # Beneficios ofrecidos
+            benefits_selectors = [
+                '.jobs-unified-top-card__job-insight:has-text("beneficios")',
+                '.job-details-jobs-unified-top-card__job-insight:has-text("beneficios")',
+                '.jobs-benefits'
             ]
             
-            for selector in applicants_selectors:
+            for selector in benefits_selectors:
                 try:
-                    applicants_element = await page.query_selector(selector)
-                    if applicants_element:
-                        applicants_text = await applicants_element.inner_text()
-                        if applicants_text and applicants_text.strip():
-                            details["aplicantes"] = applicants_text.strip()
+                    benefits_element = await page.query_selector(selector)
+                    if benefits_element:
+                        benefits_text = await benefits_element.inner_text()
+                        if benefits_text and benefits_text.strip():
+                            details["beneficios_ofrecidos"] = benefits_text.strip()
                             break
                 except:
                     continue

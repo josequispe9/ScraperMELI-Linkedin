@@ -211,148 +211,45 @@ class LinkedInJobsScraper:
                         
                         details = await self.parser.scrape_job_details(page, job.url_empleo)
                         
-                        # Actualizar job con detalles
+                        # Actualizar job con detalles completos
                         if details.get('descripcion_completa', 'No disponible') != 'No disponible':
                             job.descripcion_breve = details['descripcion_completa'][:200] + "..."
+                        
+                        if details.get('nivel_experiencia', 'No disponible') != 'No disponible':
+                            job.nivel_experiencia = details['nivel_experiencia']
+                        
+                        if details.get('beneficios_ofrecidos', 'No disponible') != 'No disponible':
+                            job.beneficios_ofrecidos = details['beneficios_ofrecidos']
                         
                         await self.wait_random(3, 6)
                         
                     except Exception as e:
-                        logger.error(f"Error scrapeando detalles de {job.titulo_puesto}: {e}")
+                        logger.debug(f"Error obteniendo detalles para {job.titulo_puesto}: {e}")
                         continue
             
+            await page.close()
             return jobs
             
         except Exception as e:
-            logger.error(f"Error en scraping de detalles: {e}")
+            logger.error(f"Error scrapeando detalles: {e}")
             return jobs
-        finally:
-            try:
-                await page.close()
-                await context.close()
-            except:
-                pass
-    
-    def save_results(self, jobs: List[JobData], filename: str = None) -> str:
-        """Guardar resultados en CSV"""
-        if not jobs:
-            logger.warning("No hay empleos para guardar")
-            return ""
-        
-        if not filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"linkedin_jobs_{timestamp}.csv"
-        
-        try:
-            import csv
-            
-            # Convertir JobData a diccionarios
-            jobs_dicts = []
-            for job in jobs:
-                job_dict = {
-                    "indice": job.indice,
-                    "fecha_extraccion": job.fecha_extraccion,
-                    "titulo_puesto": job.titulo_puesto,
-                    "empresa": job.empresa,
-                    "ubicacion": job.ubicacion,
-                    "url_empleo": job.url_empleo,
-                    "modalidad": job.modalidad,
-                    "fecha_publicacion": job.fecha_publicacion
-                }
-                jobs_dicts.append(job_dict)
-            
-            with open(filename, "w", newline="", encoding="utf-8") as f:
-                if jobs_dicts:
-                    fieldnames = list(jobs_dicts[0].keys())
-                    writer = csv.DictWriter(f, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(jobs_dicts)
-            
-            logger.info(f"Resultados guardados en: {filename}")
-            return filename
-            
-        except Exception as e:
-            logger.error(f"Error guardando resultados: {e}")
-            return ""
 
-# Función principal de entrada
+
+# Función de conveniencia para usar desde main.py
 async def scrape_linkedin_jobs(search_terms: List[str] = None, max_jobs: int = 50, include_details: bool = False) -> List[JobData]:
-    """
-    Función principal para scraping
-    
-    Args:
-        search_terms: Lista de términos de búsqueda
-        max_jobs: Máximo empleos por término
-        include_details: Si incluir scraping detallado
-    
-    Returns:
-        Lista de JobData con empleos extraídos
-    """
+    """Función principal de scraping"""
     scraper = LinkedInJobsScraper()
     
     try:
         # Scraping básico
         jobs = await scraper.scrape_jobs(search_terms, max_jobs)
         
-        if not jobs:
-            logger.warning("No se encontraron empleos")
-            return []
-        
-        # Scraping detallado opcional
-        if include_details:
-            logger.info("Iniciando scraping detallado...")
-            jobs = await scraper.scrape_job_details(jobs, max_details=min(20, len(jobs)))
-        
-        # Guardar resultados
-        filename = scraper.save_results(jobs)
-        
-        logger.info(f"Scraping completado: {len(jobs)} empleos extraídos")
-        if filename:
-            logger.info(f"Archivo guardado: {filename}")
+        # Scraping de detalles si se solicita
+        if include_details and jobs:
+            jobs = await scraper.scrape_job_details(jobs, min(len(jobs), 20))
         
         return jobs
         
     except Exception as e:
-        logger.error(f"Error en scraping principal: {e}")
-        raise
-
-# Función para ejecutar desde CLI
-async def main():
-    """Función principal para línea de comandos"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="LinkedIn Jobs Scraper")
-    parser.add_argument("--terms", nargs="+", default=["python developer"], 
-                       help="Términos de búsqueda")
-    parser.add_argument("--max-jobs", type=int, default=50, 
-                       help="Máximo empleos por término")
-    parser.add_argument("--details", action="store_true", 
-                       help="Incluir scraping detallado")
-    
-    args = parser.parse_args()
-    
-    try:
-        jobs = await scrape_linkedin_jobs(
-            search_terms=args.terms,
-            max_jobs=args.max_jobs,
-            include_details=args.details
-        )
-        
-        print(f"\n🎉 Scraping completado!")
-        print(f"📊 Total empleos: {len(jobs)}")
-        
-        if jobs:
-            print(f"\n📋 Resumen por empresa:")
-            companies = {}
-            for job in jobs:
-                companies[job.empresa] = companies.get(job.empresa, 0) + 1
-            
-            for company, count in sorted(companies.items(), key=lambda x: x[1], reverse=True)[:10]:
-                print(f"  • {company}: {count} empleos")
-        
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return 1
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        logger.error(f"Error en scrape_linkedin_jobs: {e}")
+        return []

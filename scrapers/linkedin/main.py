@@ -31,7 +31,8 @@ class CSVExporter:
         
         self.required_fields = [
             'indice', 'fecha_extraccion', 'titulo_puesto', 'empresa', 
-            'ubicacion', 'url_empleo', 'modalidad', 'fecha_publicacion'
+            'ubicacion', 'url_empleo', 'modalidad', 'fecha_publicacion',
+            'descripcion_breve', 'nivel_experiencia', 'beneficios_ofrecidos'
         ]
     
     def export_to_csv(self, jobs: List[JobData], filename: str = None) -> str:
@@ -75,7 +76,10 @@ class CSVExporter:
             'ubicacion': self._clean_text(job.ubicacion),
             'url_empleo': job.url_empleo,
             'modalidad': self._clean_text(job.modalidad),
-            'fecha_publicacion': self._clean_text(job.fecha_publicacion)
+            'fecha_publicacion': self._clean_text(job.fecha_publicacion),
+            'descripcion_breve': self._clean_text(job.descripcion_breve),
+            'nivel_experiencia': self._clean_text(job.nivel_experiencia),
+            'beneficios_ofrecidos': self._clean_text(job.beneficios_ofrecidos)
         }
     
     def _clean_text(self, text: str) -> str:
@@ -154,7 +158,7 @@ class LinkedInScraper:
             jobs = await scrape_linkedin_jobs(
                 search_terms=self.search_terms,
                 max_jobs=self.max_jobs,
-                include_details=False  # Simplificado: sin detalles extra
+                include_details=True  # Habilitar para usar campos completos
             )
             
             if not jobs:
