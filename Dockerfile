@@ -1,7 +1,7 @@
 # Usar una imagen base de Python ligera
 FROM python:3.11-slim
 
-# Instalar dependencias del sistema necesarias para Playwright
+# Instalar dependencias del sistema necesarias para Playwright + dos2unix
 RUN apt-get update && apt-get install -y \
     libnss3 \
     libatk1.0-0 \
@@ -30,9 +30,10 @@ RUN apt-get update && apt-get install -y \
     libvulkan1 \
     libxss1 \
     xdg-utils \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
-# Crear usuario no root PRIMERO
+# Crear usuario no root
 RUN useradd -m -s /bin/bash myuser && \
     mkdir -p /home/myuser/.cache && \
     chown -R myuser:myuser /home/myuser
@@ -40,33 +41,33 @@ RUN useradd -m -s /bin/bash myuser && \
 # Establecer el directorio de trabajo
 WORKDIR /app
 
-# Cambiar al usuario no root ANTES de instalar dependencias
+# Copiar TODOS los archivos como root para poder modificar permisos
+COPY requirements.txt ./
+COPY core/ ./core/
+COPY scrapers/ ./scrapers/
+COPY test/ ./test/
+COPY entrypoint.sh ./
+
+# CRÍTICO: Convertir terminadores de línea y dar permisos ANTES de cambiar usuario
+RUN dos2unix entrypoint.sh && \
+    chmod +x entrypoint.sh && \
+    chown -R myuser:myuser /app
+
+# Cambiar al usuario no root
 USER myuser
 
 # Establecer variables de entorno para Playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/myuser/.cache/ms-playwright
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/home/myuser/.local/bin:${PATH}"
 
-# Copiar archivo de dependencias y instalar
-COPY --chown=myuser:myuser requirements.txt .
+# Instalar dependencias de Python
 RUN pip install --user --upgrade pip && \
     pip install --user --no-cache-dir -r requirements.txt
 
-# Instalar navegadores de Playwright como usuario no-root
-RUN /home/myuser/.local/bin/playwright install chromium
-
-# Copiar el resto del código
-COPY --chown=myuser:myuser core/ ./core/
-COPY --chown=myuser:myuser scrapers/ ./scrapers/
-COPY --chown=myuser:myuser test/ ./test/
-COPY --chown=myuser:myuser entrypoint.sh .
-
-# Dar permisos de ejecución al entrypoint
-RUN chmod +x entrypoint.sh
-
-# Agregar el directorio local de pip al PATH
-ENV PATH="/home/myuser/.local/bin:${PATH}"
+# Instalar navegadores de Playwright
+RUN playwright install chromium
 
 # Definir punto de entrada
 ENTRYPOINT ["./entrypoint.sh"]
