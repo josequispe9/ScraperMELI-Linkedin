@@ -3,6 +3,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import re
 import os
+from pathlib import Path
 
 class DataProcessor:
     def __init__(self, mercadolibre_file, linkedin_file):
@@ -12,8 +13,9 @@ class DataProcessor:
         self.ml_df = pd.read_csv(mercadolibre_file)
         self.linkedin_df = pd.read_csv(linkedin_file)
         
-        # Crear directorio de salida si no existe
-        os.makedirs('outputs', exist_ok=True)
+        # Buscar el directorio de salida
+        self.output_dir = Path(__file__).resolve().parent.parent / "data" / "processed"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         
         # Limpiar y preparar los datos
         self._clean_data()
@@ -200,7 +202,7 @@ class DataProcessor:
         
         productos_precio.columns = ['cantidad_productos', 'precio_promedio', 'precio_minimo', 'precio_maximo']
         productos_precio = productos_precio.reset_index()
-        productos_precio.to_csv('outputs/productos_por_rango_precio.csv', index=False)
+        productos_precio.to_csv(self.output_dir / 'productos_por_rango_precio.csv', index=False)
         
         # 2. Productos por vendedor
         productos_vendedor = self.ml_df.groupby(['vendedor_limpio', 'reputacion_limpia']).agg({
@@ -213,7 +215,7 @@ class DataProcessor:
         productos_vendedor.columns = ['cantidad_productos', 'precio_promedio', 'productos_disponibles', 'productos_envio_gratis']
         productos_vendedor = productos_vendedor.reset_index()
         productos_vendedor = productos_vendedor.sort_values('cantidad_productos', ascending=False)
-        productos_vendedor.to_csv('outputs/productos_por_vendedor.csv', index=False)
+        productos_vendedor.to_csv(self.output_dir / 'productos_por_vendedor.csv', index=False)
         
         # 3. Factor personalizado: Relación precio/reputación con disponibilidad
         def calculate_value_score(row):
@@ -259,7 +261,7 @@ class DataProcessor:
                                          'disponible_bool', 'envio_gratis_bool', 'puntaje_valor', 
                                          'categoria', 'vendedor_limpio']].copy()
         factor_personalizado = factor_personalizado.sort_values('puntaje_valor', ascending=False)
-        factor_personalizado.to_csv('outputs/productos_por_factor_personalizado.csv', index=False)
+        factor_personalizado.to_csv(self.output_dir / 'productos_por_factor_personalizado.csv', index=False)
         
         print("Reportes de MercadoLibre generados exitosamente")
     
@@ -290,7 +292,7 @@ class DataProcessor:
         
         empleos_fecha.columns = ['cantidad_empleos', 'empresas_unicas']
         empleos_fecha = empleos_fecha.reset_index()
-        empleos_fecha.to_csv('outputs/empleos_por_fecha_publicacion.csv', index=False)
+        empleos_fecha.to_csv(self.output_dir / 'empleos_por_fecha_publicacion.csv', index=False)
         
         # 2. Empleos por nivel de experiencia
         empleos_experiencia = self.linkedin_df.groupby('nivel_experiencia_limpio').agg({
@@ -301,7 +303,7 @@ class DataProcessor:
         empleos_experiencia.columns = ['cantidad_empleos', 'empresas_unicas']
         empleos_experiencia = empleos_experiencia.reset_index()
         empleos_experiencia = empleos_experiencia.sort_values('cantidad_empleos', ascending=False)
-        empleos_experiencia.to_csv('outputs/empleos_por_nivel_experiencia.csv', index=False)
+        empleos_experiencia.to_csv(self.output_dir / 'empleos_por_nivel_experiencia.csv', index=False)
         
         # 3. Factor personalizado: Empleos por modalidad y ubicación
         empleos_modalidad = self.linkedin_df.groupby(['modalidad_limpia', 'ubicacion']).agg({
@@ -312,7 +314,7 @@ class DataProcessor:
         empleos_modalidad.columns = ['cantidad_empleos', 'empresas_unicas']
         empleos_modalidad = empleos_modalidad.reset_index()
         empleos_modalidad = empleos_modalidad.sort_values('cantidad_empleos', ascending=False)
-        empleos_modalidad.to_csv('outputs/empleos_por_factor_personalizado.csv', index=False)
+        empleos_modalidad.to_csv(self.output_dir / 'empleo_por_factor_personalizado_modalidad_ubicacion.csv', index=False)
         
         print("Reportes de LinkedIn generados exitosamente")
     
@@ -336,7 +338,7 @@ class DataProcessor:
         }
         
         summary_df = pd.DataFrame([summary])
-        summary_df.to_csv('outputs/reporte_resumen.csv', index=False)
+        summary_df.to_csv(self.output_dir / 'reporte_resumen.csv', index=False)
         
         print("Reporte resumen generado exitosamente")
     
@@ -368,21 +370,35 @@ class DataProcessor:
         print("- outputs/reporte_resumen.csv")
         print("="*50)
 
-# Ejemplo de uso
+
+def get_latest_file(directory: Path, prefix: str) -> Path:
+    """
+    Busca el archivo más reciente en un directorio con un prefijo específico.
+    """
+    csv_files = list(directory.glob(f"{prefix}*.csv"))
+    if not csv_files:
+        raise FileNotFoundError(f"No se encontraron archivos con el prefijo '{prefix}' en {directory}")
+    
+    # Ordenar por fecha de modificación descendente
+    latest_file = max(csv_files, key=lambda f: f.stat().st_mtime)
+    return latest_file
+
 if __name__ == "__main__":
-    # Reemplazar con las rutas de tus archivos CSV
-    MERCADOLIBRE_FILE = "C:/Users/Jose Quispe}/Desktop/repositorios/ScraperMELI-Linkedin/data/mercadolibre_productos_20250603_161938.csv"  
-    LINKEDIN_FILE = "C:/Users/Jose Quispe}/Desktop/repositorios/ScraperMELI-Linkedin/data/linkedin_jobs_20250604_160527.csv"  
-     
+
+    BASE_DIR = Path(__file__).resolve().parent.parent
+    DATA_DIR = BASE_DIR / "data" / "raw"
+
     try:
-        # Crear instancia del procesador
+        MERCADOLIBRE_FILE = get_latest_file(DATA_DIR, "mercadolibre_productos_")
+        LINKEDIN_FILE = get_latest_file(DATA_DIR, "linkedin_jobs_")
+
+        print(f"Archivo más reciente de MercadoLibre: {MERCADOLIBRE_FILE.name}")
+        print(f"Archivo más reciente de LinkedIn: {LINKEDIN_FILE.name}")
+
         processor = DataProcessor(MERCADOLIBRE_FILE, LINKEDIN_FILE)
-        
-        # Ejecutar análisis completo
         processor.run_analysis()
-        
+
     except FileNotFoundError as e:
-        print(f"Error: No se encontró el archivo especificado. {e}")
-        print("Por favor, asegúrate de que los archivos CSV estén en el directorio correcto.")
+        print(f"Error: {e}")
     except Exception as e:
         print(f"Error durante el procesamiento: {e}")

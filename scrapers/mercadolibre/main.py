@@ -23,7 +23,7 @@ logger = get_logger("main", config)
 class CSVExporter:
     """Exportador de datos a formato CSV optimizado"""
     
-    def __init__(self, output_dir: str = "data"):
+    def __init__(self, output_dir: str = "data/raw"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         

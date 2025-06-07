@@ -1,5 +1,5 @@
 """
-Parser corregido para LinkedIn Jobs
+Parser  para LinkedIn Jobs
 Basado en selectores funcionales comprobados
 """
 
@@ -29,10 +29,8 @@ class JobData:
     beneficios_ofrecidos: str = "No disponible"
 
 class LinkedInParser:
-    """Parser simplificado con selectores comprobados"""
     
     def __init__(self):
-        # Selectores basados en el código funcional de linkedin.py
         self.job_container_selectors = [
             'ul li:has(a[href*="/jobs/view/"])',
             'li[data-occludable-job-id]',
@@ -40,7 +38,7 @@ class LinkedInParser:
         ]
     
     async def find_job_elements(self, page: Page, max_jobs: int = 5) -> List[ElementHandle]:
-        """Encontrar elementos de empleos usando selectores funcionales"""
+        """Encontrar elementos de empleos usando los selectores"""
         job_elements = []
         
         # Esperar a que carguen los resultados

@@ -1,5 +1,5 @@
 """
-Sistema de Web Scraping para LinkedIn Jobs Argentina - Versión Simplificada
+Sistema de Web Scraping para LinkedIn Jobs Argentina
 Extrae información de empleos y almacena en formato CSV
 """
 
@@ -25,7 +25,7 @@ logger = get_logger("linkedin_main", config)
 class CSVExporter:
     """Exportador de datos de empleos a formato CSV"""
     
-    def __init__(self, output_dir: str = "data"):
+    def __init__(self, output_dir: str = "data/raw"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
         

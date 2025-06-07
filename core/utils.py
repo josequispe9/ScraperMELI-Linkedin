@@ -6,7 +6,6 @@ from .logger import get_logger, LogConfig
 
 # Configurar el logger con formato legible para consola
 config = LogConfig(json_format=False)
-
 logger = get_logger("scraper", config)
 
 async def random_delay(min_delay: float = 1, max_delay: float = 3):
@@ -40,7 +39,7 @@ def retry_async(max_retries: int = 3, delay: float = 1, backoff: float = 2):
         return wrapper
     return decorator
 
-# Funciones específicas para Playwright - van en core/utils.py
+# Funciones específicas para Playwright 
 async def safe_extract_text(page_or_element, selector: str = None, default: str = "N/A") -> str:
     """Extracción segura de texto - funciona con Page o ElementHandle"""
     try:
@@ -69,38 +68,3 @@ async def safe_extract_attribute(page_or_element, attribute: str, selector: str 
     except:
         pass
     return default
-
-
-# ============================================================================= #
-#            Pequeño script para probar el modulo logger desde utils            #
-# ============================================================================= #
-
-# cd /app
-# python -m core.utils
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def test_logger():
-        logger.debug("✅ DEBUG: mensaje de depuración")
-        logger.info("ℹ️ INFO: mensaje informativo")
-        logger.warning("⚠️ WARNING: algo no está bien")
-        logger.error("❌ ERROR: ocurrió un error")
-        logger.critical("🔥 CRITICAL: error grave")
-
-    @retry_async(max_retries=2, delay=1)
-    async def test_retry():
-        logger.info("Intentando ejecutar test_retry()")
-        raise RuntimeError("Falla simulada para probar el retry")
-
-    async def main():
-        print("\n--- Probando distintos niveles del logger ---\n")
-        await test_logger()
-        
-        print("\n--- Probando el decorador retry_async ---\n")
-        try:
-            await test_retry()
-        except Exception as e:
-            logger.error(f"Excepción final capturada: {e}")
-
-    asyncio.run(main())
