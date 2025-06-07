@@ -8,36 +8,6 @@
 
 La clase limpia los datos, realiza análisis estadísticos y genera reportes en formato CSV para facilitar la toma de decisiones comerciales y de recursos humanos.
 
-## Instalación y Dependencias
-
-### Dependencias Requeridas
-
-```python
-pip install pandas numpy
-```
-
-### Dependencias del Sistema
-- Python 3.7+
-- Módulos estándar: `datetime`, `re`, `os`
-
-## Estructura de Archivos
-
-```
-proyecto/
-├── main.py                 # Archivo principal con la clase DataProcessor
-├── data/                   # Directorio de datos de entrada
-│   ├── mercadolibre_productos_*.csv
-│   └── linkedin_jobs_*.csv
-└── outputs/                # Directorio de salida (se crea automáticamente)
-    ├── productos_por_rango_precio.csv
-    ├── productos_por_vendedor.csv
-    ├── productos_por_factor_personalizado.csv
-    ├── empleos_por_fecha_publicacion.csv
-    ├── empleos_por_nivel_experiencia.csv
-    ├── empleos_por_factor_personalizado.csv
-    └── reporte_resumen.csv
-```
-
 ## Formato de Datos de Entrada
 
 ### Archivo CSV de MercadoLibre
@@ -59,39 +29,6 @@ Debe contener las siguientes columnas:
 - `modalidad`: Modalidad de trabajo (remoto, presencial, híbrido)
 - `ubicacion`: Ubicación del empleo
 
-## Uso Básico
-
-### Ejemplo Simple
-
-```python
-from main import DataProcessor
-
-# Rutas de los archivos CSV
-mercadolibre_file = "data/mercadolibre_productos.csv"
-linkedin_file = "data/linkedin_jobs.csv"
-
-# Crear instancia del procesador
-processor = DataProcessor(mercadolibre_file, linkedin_file)
-
-# Ejecutar análisis completo
-processor.run_analysis()
-```
-
-### Uso Avanzado - Análisis Específicos
-
-```python
-# Crear instancia
-processor = DataProcessor(mercadolibre_file, linkedin_file)
-
-# Generar solo reportes de MercadoLibre
-processor.generate_mercadolibre_reports()
-
-# Generar solo reportes de LinkedIn
-processor.generate_linkedin_reports()
-
-# Generar reporte resumen
-processor.generate_summary_report()
-```
 
 ## Documentación de la API
 
@@ -101,12 +38,11 @@ processor.generate_summary_report()
 **Inicializa el procesador de datos**
 
 **Parámetros:**
-- `mercadolibre_file` (str): Ruta al archivo CSV de MercadoLibre
-- `linkedin_file` (str): Ruta al archivo CSV de LinkedIn
+- `mercadolibre_file` (str): Ruta dinamica al archivo CSV de MercadoLibre
+- `linkedin_file` (str): Ruta dinamica al archivo CSV de LinkedIn
 
 **Funcionalidad:**
 - Carga los archivos CSV en DataFrames de pandas
-- Crea el directorio `outputs/` si no existe
 - Ejecuta automáticamente la limpieza de datos
 
 #### `_clean_data()`
