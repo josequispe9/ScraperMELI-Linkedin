@@ -231,7 +231,7 @@ class LinkedInParser:
             if not url or url == "No encontrado" or not url.startswith("http"):
                 return details
             
-            await page.goto(url, wait_until='domcontentloaded', timeout=30000)
+            await page.goto(url, wait_until='domcontentloaded', timeout=40000)
             
             # Descripción completa
             desc_selectors = [
@@ -250,24 +250,54 @@ class LinkedInParser:
                             break
                 except:
                     continue
-            
-            # Nivel de experiencia
+                        
+
+            # Nivel de experiencia              
             exp_selectors = [
-                '.jobs-unified-top-card__job-insight',
-                '.job-details-jobs-unified-top-card__job-insight'
+                # Selector principal basado en el HTML real
+                'span[dir="ltr"].job-details-jobs-unified-top-card__job-insight-view-model-secondary',
+                '.job-details-jobs-unified-top-card__job-insight-view-model-secondary',
+                'span[dir="ltr"][class*="job-insight-view-model-secondary"]',
+                # Selectores de respaldo
+                'span[class*="job-details-jobs-unified-top-card__job-insight-view-model-secondary"]',
+                '.job-details-jobs-unified-top-card__job-insight',
+                '.jobs-unified-top-card__job-insight'
             ]
-            
+
+            # Palabras clave para niveles de experiencia en LinkedIn español
+            experience_keywords = [
+                # Formato de LinkedIn (con mayúscula inicial)
+                'prácticas', 'sin experiencia', 'algo de responsabilidad', 
+                'intermedio', 'director', 'ejecutivo',
+                # Formato inglés (por si acaso)
+                'entry', 'senior', 'mid', 'junior', 'level',
+                # Variantes adicionales
+                'práctica', 'entry level', 'mid level', 'senior level'
+            ]
+            # Esperar a que el elemento se cargue
+            await page.wait_for_selector('.job-details-jobs-unified-top-card__job-insight-view-model-secondary', timeout=5000)
             for selector in exp_selectors:
                 try:
                     exp_elements = await page.query_selector_all(selector)
                     for exp_element in exp_elements:
                         exp_text = await exp_element.inner_text()
-                        if exp_text and any(keyword in exp_text.lower() 
-                                          for keyword in ['entry', 'senior', 'mid', 'junior', 'level']):
-                            details["nivel_experiencia"] = exp_text.strip()
-                            break
-                except:
+                        if exp_text:
+                            # Limpiar el texto de comillas, espacios extra y comentarios HTML
+                            exp_text_clean = exp_text.strip().replace('"', '').replace("'", "").replace('\n', ' ')
+                            # Limpiar múltiples espacios
+                            exp_text_clean = ' '.join(exp_text_clean.split())
+                            if any(keyword in exp_text_clean.lower()
+                                for keyword in experience_keywords):
+                                details["nivel_experiencia"] = exp_text_clean
+                                break
+                                            
+                    # Si encontramos el nivel, salimos del bucle principal
+                    if details["nivel_experiencia"] != "No disponible":
+                        break
+                                            
+                except Exception as e:
                     continue
+
             
             # Beneficios ofrecidos
             benefits_selectors = [

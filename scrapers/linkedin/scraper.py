@@ -1,6 +1,6 @@
 """
 Scraper para LinkedIn Jobs - Versión Corregida y Simplificada
-Basado en el código funcional de linkedin.py con parser modular
+
 """
 
 import asyncio

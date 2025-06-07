@@ -172,7 +172,7 @@ class LinkedInScraper:
 
 
 async def main():
-    """Función principal"""
+    
     parser = argparse.ArgumentParser(
         description='LinkedIn Jobs Scraper - Argentina'
     )
