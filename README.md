@@ -59,8 +59,8 @@ web-scraping-system/
 
 ```bash
 # 1. Clonar repositorio
-git clone https://github.com/tu-usuario/web-scraping-system.git
-cd web-scraping-system
+git clone https://github.com/josequispe9/ScraperMELI-Linkedin.git
+cd ScraperMELI-Linkedin
 
 # 2. Levantar los servicios con Docker Compose
 docker-compose up --build
